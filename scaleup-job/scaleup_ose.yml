@@ -1,0 +1,63 @@
+---
+- hosts: all
+  gather_facts: False
+
+- hosts: new_nodes
+  gather_facts: False
+  remote_user: root
+  become: yes
+  tasks:
+    - name: Install Authorized key for Adam / OSE
+      authorized_key:
+        user=ec2-user
+        key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDj1OFnrboalGp+OqYeuKTjzpkUSLGfOnsC/AsLodw5dD45IaB5AP6vLO6FrcHU1iyOe3U/ND5lRmo4REBLhEXzelPiFQ4/ScsZV/p3+WJ932HTa7EVnYyE2wMKe6+tmerz2U6co0NNbD0X+Dw9sTQ84wFF7oAmMhhADVF2mwCMAEGP2XyOi1eHDsLRedwAoBbuxQx/WMjqhvgJPj5pas5xUpPU9cmNldXXgqpLtrTut8PapnqcsCyDVILC28m/T5l7SA3YBd7X77ZHLghcGhh9SpqBjRsH5pvrrvdHyJFmFl3hbcNen8Q00tEs0jgYAU4oOM84gts1JSEuHkT/0MnB amclean@redhat.com"
+    - name: Copy the adamlab repo files
+      copy: src=/etc/yum.repos.d/adamlab.repo dest=/etc/yum.repos.d/adamlab.repo
+    - name: Remove all existing search domain entries in the resolv.conf file
+      lineinfile: dest=/etc/resolv.conf state=absent regexp="^search.*"
+    - name: Remove all existing nameserver entries in the resolv.conf file
+      lineinfile: dest=/etc/resolv.conf state=absent regexp="^nameserver.*"
+    - name: Add adamlab search suffix entry to the resolv.conf
+      lineinfile: dest=/etc/resolv.conf line="search adamlab"
+    - name: Add adamlab DNS server entry to resolv.conf
+      lineinfile: dest=/etc/resolv.conf line="nameserver 192.168.10.100" insertafter="^search.*"
+
+- hosts: cloudforms
+  remote_user: root
+  become: yes
+  tasks:
+    - name: Copy the ivnentory file to this machine.
+      fetch: src=/tmp/hosts.ose.scaleup dest=/tmp/hosts.ose.scaleup validate_checksum=no
+
+# Pick the first entry, just one master runs the scaleup play.
+- hosts: masters[0-1]
+  remote_user: root
+  become: yes
+  tasks:
+    - name: Clear the destination directory of any existing host file.
+      file: path=/tmp/hosts.ose.scaleup state=absent
+    - name: Copy the inventory file to OSE3 Master
+      copy: src=/tmp/hosts.ose.scaleup dest=/tmp/hosts.ose.scaleup
+    - name: Execute the scaleup playbook.
+      command: ansible-playbook -i /tmp/hosts.ose.scaleup /usr/share/ansible/openshift-ansible/playbooks/byo/openshift-cluster/scaleup.yml
+
+- hosts: new_nodes
+  remote_user: root
+  become: yes
+  tasks:
+    - name: Retrieve the scaleup docker image from S3
+      get_url: url=https://s3.amazonaws.com/ose-scaletest/ose-scaletesting.tar.gz dest=/tmp/ose-scaletesting.tar.gz mode=0440
+    - name: Uncompress the image
+      command: gunzip /tmp/ose-scaletesting.tar.gz
+    - name: Import the image to docker
+      command: docker load -i /tmp/ose-scaletesting.tar
+    - name: Set the correct label
+      command: docker tag -f 40b601df56fd 172.30.183.72:5000/adam-project/ose-scaletesting@sha256:057ca6c9bb40d474b52f515b127f320ab04dc34d2a19968470709a52ab228bae
+    - name: Remove existing MTU setting
+      lineinfile: 'dest=/etc/origin/node/node-config.yaml state=absent regexp="^\s+mtu:.*"'
+    - name: Set the MTU to 1300
+      lineinfile: 'dest=/etc/origin/node/node-config.yaml line="   mtu: 1300" insertafter="^networkConfig:"'
+    - name: undefine br0
+      command: ovs-vsctl del-br br0
+    - name: Restart atomic openshit to re-create the bridge with new MTU values
+      service: name=atomic-openshift-node state=restarted

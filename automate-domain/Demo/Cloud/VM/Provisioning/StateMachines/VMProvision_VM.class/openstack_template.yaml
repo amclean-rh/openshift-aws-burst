@@ -1,0 +1,22 @@
+---
+object_type: instance
+version: 1.0
+object:
+  attributes:
+    display_name: OpenStack_template
+    name: OpenStack_template
+    inherits: 
+    description: 
+  fields:
+  - Provision:
+      value: "/Cloud/VM/Provisioning/StateMachines/Methods/Provision"
+  - CheckProvisioned:
+      value: "/Cloud/VM/Provisioning/StateMachines/Methods/CheckProvisioned"
+  - RegisterDHCP:
+      value: "/Demo/Integration/RedHat/OpenStack/Nova/AllocateFloatingIP"
+  - RegisterDNS:
+      value: "/Integration/PowerDNS/API/AddHostDNS"
+  - RegisterAD:
+      value: "/Integration/Ansible/Attributes/SetHostAttributes"
+  - ActivateCMDB:
+      value: "/System/CommonMethods/StateMachineMethods/Add_VM_To_Service"
